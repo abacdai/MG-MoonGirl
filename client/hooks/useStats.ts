@@ -1,158 +1,149 @@
-import { useState, useEffect, useCallback } from "react";
-import { useApi } from "./useApi";
-import type { FocusSession as ApiFocusSession, StatsResponse } from "@shared/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { StatsResponse, EndSessionResponse, StartSessionResponse } from "@shared/api";
 
-export interface FocusSession extends ApiFocusSession {}
+const API_BASE = import.meta.env.VITE_API_URL || "";
+const STORAGE_KEY = "moonGirl_stats_fallback";
 
-export interface UserStats {
-  moonCoins: number;
-  focusHours: number;
-  sleepHours: number;
-  screenTimeHours: number;
-  sessions: FocusSession[];
-  level: number;
-  streak: number;
+// ─── Typed fetcher ───────────────────────────────────────────
+async function apiFetch<T>(
+  endpoint: string,
+  options?: RequestInit
+): Promise<T> {
+  const token = localStorage.getItem("auth_token");
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options?.headers,
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
 }
 
-const STORAGE_KEY = "moonGirl_stats";
+// ─── Query Keys (typed constants, never magic strings) ───────
+export const STATS_KEY = ["stats"] as const;
+export const SESSIONS_KEY = ["sessions"] as const;
 
-const getDefaultStats = (): UserStats => ({
-  moonCoins: 0,
-  focusHours: 0,
-  sleepHours: 0,
-  screenTimeHours: 0,
-  sessions: [],
-  level: 1,
-  streak: 0,
-});
+// ─── Local fallback (unauthenticated / demo mode) ────────────
+function getFallbackStats(): StatsResponse {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as StatsResponse;
+  } catch { /* ignore */ }
+  return {
+    moonCoins: 0,
+    focusHours: 0,
+    sleepHours: 0,
+    screenTimeHours: 0,
+    level: 1,
+    streak: 0,
+  };
+}
 
-export const useStats = () => {
-  const api = useApi();
-  const [stats, setStats] = useState<UserStats>(getDefaultStats());
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+// ─── Main hook ───────────────────────────────────────────────
+export function useStats() {
+  const qc = useQueryClient();
+  const isAuthed = Boolean(localStorage.getItem("auth_token"));
 
-  // Load stats from API on mount
-  useEffect(() => {
-    loadStats();
-  }, []);
+  // ── Stats query ──────────────────────────────────────────
+  const statsQuery = useQuery<StatsResponse, Error>({
+    queryKey: STATS_KEY,
+    queryFn: async () => {
+      if (!isAuthed) return getFallbackStats();
+      const data = await apiFetch<StatsResponse>("/api/focus/stats");
+      // Keep localStorage warm as offline fallback
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      return data;
+    },
+    staleTime: 30_000,          // treat fresh for 30s
+    gcTime: 5 * 60_000,         // keep in cache 5 min
+    retry: 2,
+    refetchOnWindowFocus: false, // no surprise refetch on tab switch
+  });
 
-  const loadStats = useCallback(async () => {
-    if (!api.getToken()) {
-      // Use localStorage as fallback
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        try {
-          setStats(JSON.parse(saved));
-        } catch {
-          setStats(getDefaultStats());
-        }
-      }
-      return;
+  // ── Start session mutation ───────────────────────────────
+  const startSessionMutation = useMutation<
+    StartSessionResponse,
+    Error,
+    { mode: string; focusTime: number }
+  >({
+    mutationFn: ({ mode, focusTime }) =>
+      apiFetch<StartSessionResponse>("/api/focus/start", {
+        method: "POST",
+        body: JSON.stringify({ mode, focusTime }),
+      }),
+  });
+
+  // ── End session mutation — invalidates stats on success ──
+  const endSessionMutation = useMutation<
+    EndSessionResponse,
+    Error,
+    {
+      sessionId: string;
+      clientEndTimestamp: number;
+      claimedDuration: number;
+      clientHash: string;
     }
+  >({
+    mutationFn: (payload) =>
+      apiFetch<EndSessionResponse>("/api/focus/end", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      // Re-fetch fresh stats from server after session completes
+      qc.invalidateQueries({ queryKey: STATS_KEY });
+      qc.invalidateQueries({ queryKey: SESSIONS_KEY });
+    },
+  });
 
-    setIsLoading(true);
-    setError(null);
+  // ── Convenience: run full focus session flow ─────────────
+  async function addFocusSession(
+    durationMinutes: number,
+    mode: string = "normal"
+  ): Promise<number | null> {
+    if (!isAuthed) {
+      // Optimistic local update for demo / unauthenticated mode
+      qc.setQueryData<StatsResponse>(STATS_KEY, (prev) => {
+        const next = prev ?? getFallbackStats();
+        const updated: StatsResponse = {
+          ...next,
+          focusHours: +(next.focusHours + durationMinutes / 60).toFixed(2),
+          moonCoins: next.moonCoins + Math.floor((durationMinutes / 60) * 100),
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
+      return Math.floor((durationMinutes / 60) * 100);
+    }
 
     try {
-      const result = await api.getStats();
-
-      if (result) {
-        const statsData = result as StatsResponse;
-        setStats((prev) => ({
-          ...prev,
-          moonCoins: statsData.moonCoins,
-          focusHours: statsData.focusHours,
-          sleepHours: statsData.sleepHours,
-          screenTimeHours: statsData.screenTimeHours,
-          level: statsData.level,
-          streak: statsData.streak,
-        }));
-
-        // Also update localStorage as fallback
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(statsData));
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load stats");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [api]);
-
-  const addFocusSession = useCallback(
-    async (durationMinutes: number, mode: string = "normal") => {
-      if (!api.getToken()) {
-        // Fallback to local update
-        setStats((prev) => ({
-          ...prev,
-          focusHours: prev.focusHours + durationMinutes / 60,
-          moonCoins: prev.moonCoins + Math.floor((durationMinutes / 60) * 100),
-        }));
-        return null;
-      }
-
-      setIsLoading(true);
-
-      try {
-        // Start session
-        const startResult = await api.startSession(mode, durationMinutes);
-        if (!startResult) {
-          setError("Failed to start session");
-          return null;
-        }
-
-        const { sessionId, serverTick, clientHash } = startResult as any;
-
-        // Simulate session completion (in real app, wait for actual completion)
-        const endTimestamp = Date.now();
-        const claimedDuration = durationMinutes * 60 * 1000; // milliseconds
-
-        // End session
-        const endResult = await api.endSession(
-          sessionId,
-          endTimestamp,
-          claimedDuration,
-          clientHash
-        );
-
-        if (endResult) {
-          const { pointsEarned } = endResult as any;
-
-          // Reload stats from API
-          await loadStats();
-
-          return pointsEarned;
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to complete session");
-      } finally {
-        setIsLoading(false);
-      }
-
+      const started = await startSessionMutation.mutateAsync({ mode, focusTime: durationMinutes });
+      const ended = await endSessionMutation.mutateAsync({
+        sessionId: started.sessionId,
+        clientEndTimestamp: Date.now(),
+        claimedDuration: durationMinutes * 60 * 1000,
+        clientHash: started.clientHash,
+      });
+      return ended.pointsEarned;
+    } catch {
       return null;
-    },
-    [api, loadStats]
-  );
-
-  const updateSleepHours = useCallback((hours: number) => {
-    setStats((prev) => ({
-      ...prev,
-      sleepHours: parseFloat(hours.toFixed(1)),
-    }));
-  }, []);
-
-  const resetStats = useCallback(() => {
-    setStats(getDefaultStats());
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
+    }
+  }
 
   return {
-    stats,
-    isLoading,
-    error,
+    stats: statsQuery.data ?? getFallbackStats(),
+    isLoading: statsQuery.isLoading,
+    isFetching: statsQuery.isFetching,
+    error: statsQuery.error,
+    refetch: statsQuery.refetch,
     addFocusSession,
-    updateSleepHours,
-    resetStats,
-    loadStats,
+    isSubmittingSession:
+      startSessionMutation.isPending || endSessionMutation.isPending,
   };
-};
+}

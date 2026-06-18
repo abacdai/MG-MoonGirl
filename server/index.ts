@@ -37,6 +37,8 @@ export function createServer() {
   // ═══════════════════════════════════════
   app.post("/api/focus/start", focus.startSession);
   app.post("/api/focus/end", focus.endSession);
+  app.post("/api/focus/heartbeat", focus.heartbeat);
+  app.post("/api/focus/penalty", focus.penalty);
   app.get("/api/focus/sessions", focus.getSessions);
   app.get("/api/focus/stats", focus.getStats);
 
@@ -44,6 +46,8 @@ export function createServer() {
   // ROOM & FURNITURE ROUTES
   // ═══════════════════════════════════════
   app.get("/api/rooms", rooms.getRooms);
+  app.post("/api/rooms", rooms.createStudyRoom);
+  app.get("/api/rooms/study/list", rooms.listStudyRooms);
   app.post("/api/rooms/unlock", rooms.unlockRoom);
   app.get("/api/rooms/:roomId/furniture", rooms.getRoomFurniture);
   app.post("/api/rooms/furniture/place", rooms.placeFurniture);

@@ -12,6 +12,17 @@ interface Room {
   pointsCost: number;
 }
 
+interface StudyRoom {
+  id: string;
+  name: string;
+  description: string;
+  hostId: string;
+  memberCount: number;
+  maxMembers: number;
+  isPublic: boolean;
+  createdAt: Date;
+}
+
 interface FurnitureItem {
   id: string;
   roomId: string;
@@ -27,6 +38,8 @@ interface FurnitureItem {
 const userRooms = new Map<string, Room[]>();
 const furniture = new Map<string, FurnitureItem[]>();
 const users = new Map<string, any>();
+const studyRooms = new Map<string, StudyRoom>();
+const roomMembers = new Map<string, Set<string>>();
 
 const ROOM_CONFIG: Record<string, any> = {
   bedroom: {
@@ -71,6 +84,43 @@ export const getRooms: RequestHandler = (req, res) => {
   const rooms = userRooms.get(token) || [];
 
   res.json({ rooms });
+};
+
+export const createStudyRoom: RequestHandler = (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "") || `user_${Date.now()}`;
+  const { name, description, maxMembers, isPublic } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Room name is required" });
+  }
+
+  const roomId = `study_room_${Date.now()}`;
+  const room: StudyRoom = {
+    id: roomId,
+    name: name.trim(),
+    description: description?.trim() || "",
+    hostId: token,
+    memberCount: 1,
+    maxMembers: maxMembers || 10,
+    isPublic: isPublic !== false,
+    createdAt: new Date(),
+  };
+
+  studyRooms.set(roomId, room);
+  roomMembers.set(roomId, new Set([token]));
+
+  res.json({ room });
+};
+
+export const listStudyRooms: RequestHandler = (req, res) => {
+  const rooms = Array.from(studyRooms.values()).filter((r) => r.isPublic);
+
+  res.json({
+    rooms: rooms.map((room) => ({
+      ...room,
+      memberCount: roomMembers.get(room.id)?.size || 1,
+    })),
+  });
 };
 
 export const unlockRoom: RequestHandler = (req, res) => {
@@ -226,7 +276,7 @@ export const deleteFurniture: RequestHandler = (req, res) => {
 };
 
 export const getRoomFurniture: RequestHandler = (req, res) => {
-  const { roomId } = req.params;
+  const roomId = String(req.params.roomId);
 
   const items = furniture.get(roomId) || [];
 

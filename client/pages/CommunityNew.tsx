@@ -1,20 +1,22 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Home, Clock, Users, LayoutGrid, ChevronLeft, Plus, Send, Mic, MicOff, Flame } from "lucide-react";
+import { Home, Clock, Users, LayoutGrid, ChevronLeft, Plus, Send, Mic, MicOff, Flame, Circle, Loader } from "lucide-react";
 import { useLanguage } from "@/hooks/useLanguage";
 import { useSocket } from "@/hooks/useSocket";
 import { useAuth } from "@/hooks/useAuth";
+import { useApi } from "@/hooks/useApi";
+import { toast } from "sonner";
 
 export default function Community() {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const api = useApi();
   const {
     isConnected,
     currentRoom,
     roomMembers,
     chatMessages,
     availableRooms,
-    createRoom,
     joinRoom,
     leaveRoom,
     listRooms,
@@ -28,13 +30,42 @@ export default function Community() {
   const [roomDescription, setRoomDescription] = useState("");
   const [messageInput, setMessageInput] = useState("");
   const [userMicOn, setUserMicOn] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
 
-  const handleCreateRoom = () => {
-    if (roomName.trim()) {
-      createRoom(roomName, roomDescription, 10, true);
-      setRoomName("");
-      setRoomDescription("");
-      setShowCreateRoom(false);
+  const handleCreateRoom = async () => {
+    if (!roomName.trim()) {
+      toast.error("Vui lòng nhập tên phòng");
+      return;
+    }
+
+    setIsCreatingRoom(true);
+    try {
+      // Call backend to create the room
+      const result = await api.request(
+        "POST",
+        "/api/rooms",
+        {
+          name: roomName.trim(),
+          description: roomDescription.trim(),
+          maxMembers: 10,
+          isPublic: true,
+        }
+      );
+
+      if (result) {
+        toast.success("Phòng đã được tạo thành công!");
+        setRoomName("");
+        setRoomDescription("");
+        setShowCreateRoom(false);
+        // Refresh the room list
+        listRooms();
+      } else if (api.error) {
+        toast.error(api.error.error || "Lỗi khi tạo phòng");
+      }
+    } catch (err) {
+      toast.error("Lỗi khi tạo phòng");
+    } finally {
+      setIsCreatingRoom(false);
     }
   };
 
@@ -78,10 +109,11 @@ export default function Community() {
             <ChevronLeft className="w-5 h-5" />
           </Link>
           <h2 className="text-lg font-semibold text-gray-800">Cộng đồng</h2>
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`}
-            ></div>
+          <div className="flex items-center gap-1">
+            <Circle
+              className={`w-2 h-2 ${isConnected ? "text-green-500 fill-green-500" : "text-red-500 fill-red-500"}`}
+              strokeWidth={0}
+            />
           </div>
         </div>
 
@@ -120,37 +152,68 @@ export default function Community() {
 
             {/* Create Room Modal */}
             {showCreateRoom && (
-              <div className="bg-white bg-opacity-50 backdrop-blur-md rounded-3xl p-6 border border-white border-opacity-60 space-y-4">
-                <h3 className="font-semibold text-gray-900">Tạo phòng học tập</h3>
-                <input
-                  type="text"
-                  value={roomName}
-                  onChange={(e) => setRoomName(e.target.value)}
-                  placeholder="Tên phòng"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+              <>
+                <div
+                  className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity"
+                  onClick={() => !isCreatingRoom && setShowCreateRoom(false)}
                 />
-                <textarea
-                  value={roomDescription}
-                  onChange={(e) => setRoomDescription(e.target.value)}
-                  placeholder="Mô tả (tùy chọn)"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
-                  rows={3}
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowCreateRoom(false)}
-                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 rounded-xl"
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    onClick={handleCreateRoom}
-                    className="flex-1 bg-purple-500 hover:bg-purple-600 text-white font-semibold py-3 rounded-xl"
-                  >
-                    Tạo
-                  </button>
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="bg-gradient-to-r from-purple-500 to-purple-600 p-6">
+                      <h2 className="text-2xl font-bold text-white">Tạo phòng học tập</h2>
+                      <p className="text-purple-100 text-sm mt-1">Bắt đầu tập trung cùng bạn bè</p>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Tên phòng
+                        </label>
+                        <input
+                          type="text"
+                          value={roomName}
+                          onChange={(e) => setRoomName(e.target.value)}
+                          placeholder="Nhập tên phòng"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          disabled={isCreatingRoom}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Mô tả (tùy chọn)
+                        </label>
+                        <textarea
+                          value={roomDescription}
+                          onChange={(e) => setRoomDescription(e.target.value)}
+                          placeholder="Mô tả phòng học"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+                          rows={3}
+                          disabled={isCreatingRoom}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-6 border-t border-gray-100 flex gap-3">
+                      <button
+                        onClick={() => setShowCreateRoom(false)}
+                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 rounded-xl transition-colors disabled:opacity-50"
+                        disabled={isCreatingRoom}
+                      >
+                        Hủy
+                      </button>
+                      <button
+                        onClick={handleCreateRoom}
+                        className="flex-1 bg-purple-500 hover:bg-purple-600 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                        disabled={isCreatingRoom}
+                      >
+                        {isCreatingRoom && <Loader className="w-4 h-4 animate-spin" />}
+                        {isCreatingRoom ? "Đang tạo..." : "Tạo"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* Available Rooms */}

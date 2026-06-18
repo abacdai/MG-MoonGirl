@@ -205,6 +205,7 @@ export const useApi = () => {
     getToken,
     setToken,
     clearToken,
+    request,
     // Auth
     register,
     login,

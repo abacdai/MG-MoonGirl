@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Home,
@@ -8,8 +7,6 @@ import {
   ChevronLeft,
   Play,
   Pause,
-  SkipBack,
-  SkipForward,
   Music,
   BookOpen,
   BarChart3,
@@ -18,47 +15,32 @@ import {
   ChevronRight,
   CheckCircle,
 } from "lucide-react";
-import { useStats } from "@/hooks/useStats";
-import { toast } from "sonner";
+import { useFocus } from "@/hooks/useFocus";
+import { useState } from "react";
 
 type TimerMode = "infinite" | "normal" | "strict";
 
 export default function Timer() {
-  const [mode, setMode] = useState<TimerMode>("normal");
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [seconds, setSeconds] = useState(25 * 60);
-  const [totalSeconds] = useState(25 * 60);
-  const [focusTime, setFocusTime] = useState(25);
-  const [breakTime, setBreakTime] = useState(5);
-  const [sessions, setSessions] = useState(4);
-  const { stats, addFocusSession } = useStats();
+  const {
+    mode,
+    focusTime,
+    breakTime,
+    sessions,
+    isPlaying,
+    isLoading,
+    toggleTimer,
+    remainingSeconds,
+    handleModeChange,
+    handleFocusTimeChange,
+    handleBreakTimeChange,
+    handleSessionsChange,
+  } = useFocus();
   const [showCompletionModal, setShowCompletionModal] = useState(false);
 
-  useEffect(() => {
-    if (!isPlaying) return;
-
-    const interval = setInterval(() => {
-      setSeconds((prev) => {
-        if (prev <= 1) {
-          setIsPlaying(false);
-          // Timer completed - record the focus session
-          setTimeout(() => {
-            addFocusSession(focusTime);
-            setShowCompletionModal(true);
-            toast.success(`✨ Bạn kiếm được ${Math.round(focusTime * (100 / 60))} MoonCoins!`);
-          }, 0);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isPlaying, focusTime, addFocusSession]);
-
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  const progress = ((totalSeconds - seconds) / totalSeconds) * 100;
+  const minutes = Math.floor(remainingSeconds / 60);
+  const secs = remainingSeconds % 60;
+  const totalSeconds = focusTime * 60;
+  const progress = ((totalSeconds - remainingSeconds) / totalSeconds) * 100;
 
   const getModeIcon = (m: TimerMode) => {
     switch (m) {
@@ -137,11 +119,12 @@ export default function Timer() {
       <div className="px-4 -mt-12 relative z-10 space-y-4">
         {/* Mode Tabs */}
         <div className="flex gap-3">
-          {(["infinite", "normal", "strict"] as TimerMode[]).map((m) => (
+          {(["infinite", "normal", "strict"] as const).map((m) => (
             <button
               key={m}
-              onClick={() => setMode(m)}
-              className={`flex-1 rounded-3xl px-3 py-3 transition-all text-center ${
+              onClick={() => handleModeChange(m)}
+              disabled={isPlaying}
+              className={`flex-1 rounded-3xl px-3 py-3 transition-all text-center disabled:opacity-50 ${
                 mode === m
                   ? "bg-purple-500 text-white shadow-md"
                   : "bg-white text-gray-700 border border-gray-200 shadow-sm hover:border-gray-300"
@@ -200,13 +183,11 @@ export default function Timer() {
           </div>
 
           {/* Controls */}
-          <div className="flex items-center justify-center gap-6">
-            <button className="w-11 h-11 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-700 hover:bg-gray-50 shadow-sm">
-              <SkipBack className="w-5 h-5" />
-            </button>
+          <div className="flex items-center justify-center">
             <button
-              onClick={() => setIsPlaying(!isPlaying)}
-              className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl transition-all shadow-lg ${
+              onClick={toggleTimer}
+              disabled={isLoading}
+              className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl transition-all shadow-lg disabled:opacity-50 ${
                 isPlaying
                   ? "bg-red-500 hover:bg-red-600 text-white"
                   : "bg-purple-500 hover:bg-purple-600 text-white"
@@ -218,79 +199,107 @@ export default function Timer() {
                 <Play className="w-7 h-7 ml-1" />
               )}
             </button>
-            <button className="w-11 h-11 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-700 hover:bg-gray-50 shadow-sm">
-              <SkipForward className="w-5 h-5" />
-            </button>
           </div>
         </div>
 
-        {/* Settings Card */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-4 space-y-3">
-          {[
-            { label: "Thời gian học", value: focusTime, unit: " phút", max: 60 },
-            { label: "Nghỉ giải lao", value: breakTime, unit: " phút", max: 30 },
-            {
-              label: "Số buổi",
-              value: sessions,
-              unit: " buổi",
-              max: 10,
-            },
-          ].map((item, i) => (
-            <div key={i} className="flex items-center gap-3 pb-3 border-b border-gray-100 last:border-b-0">
+        {/* Settings Card - Hidden in Infinite Mode */}
+        {mode !== "infinite" && (
+          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-4 space-y-3">
+            {/* Focus Time Slider */}
+            <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
               <label className="text-xs uppercase text-gray-500 font-semibold w-24">
-                {item.label}
+                Thời gian học
               </label>
-              <div className="flex-1 h-1 bg-gray-200 rounded-full relative">
-                <div
-                  className="h-full bg-purple-500 rounded-full"
-                  style={{
-                    width: `${(
-                      ((item.value as number) / item.max) *
-                      100
-                    ).toFixed(0)}%`,
-                  }}
-                ></div>
-              </div>
+              <input
+                type="range"
+                min="5"
+                max="60"
+                value={focusTime}
+                onChange={(e) => handleFocusTimeChange(Number(e.target.value))}
+                disabled={isPlaying}
+                className="flex-1 h-2 bg-gray-200 rounded-full cursor-pointer appearance-none disabled:opacity-50"
+                style={{
+                  background: `linear-gradient(to right, #a855f7 0%, #a855f7 ${(focusTime / 60) * 100}%, #e5e1db ${(focusTime / 60) * 100}%, #e5e1db 100%)`,
+                }}
+              />
               <div className="text-xs font-semibold text-gray-700 w-16 text-right">
-                {item.value}
-                {item.unit}
+                {focusTime} phút
               </div>
             </div>
-          ))}
-        </div>
 
-        {/* Tools Row */}
-        <div className="grid grid-cols-4 gap-2">
-          {[
-            { icon: Globe, label: "Tra cứu" },
-            { icon: Music, label: "Âm nhạc" },
-            { icon: BookOpen, label: "Ghi chú" },
-            { icon: BarChart3, label: "Thống kê" },
-          ].map((tool, i) => (
-            <button
-              key={i}
-              className="bg-white rounded-2xl p-3 flex flex-col items-center gap-2 text-purple-600 border border-gray-100 hover:bg-purple-50 transition-colors shadow-sm"
-            >
-              <tool.icon className="w-5 h-5" />
-              <span className="text-xs text-gray-700">{tool.label}</span>
-            </button>
-          ))}
-        </div>
+            {/* Break Time Slider */}
+            <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+              <label className="text-xs uppercase text-gray-500 font-semibold w-24">
+                Nghỉ giải lao
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="30"
+                value={breakTime}
+                onChange={(e) => handleBreakTimeChange(Number(e.target.value))}
+                disabled={isPlaying}
+                className="flex-1 h-2 bg-gray-200 rounded-full cursor-pointer appearance-none disabled:opacity-50"
+                style={{
+                  background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(breakTime / 30) * 100}%, #e5e1db ${(breakTime / 30) * 100}%, #e5e1db 100%)`,
+                }}
+              />
+              <div className="text-xs font-semibold text-gray-700 w-16 text-right">
+                {breakTime} phút
+              </div>
+            </div>
 
-        {/* Block Apps Row */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Shield className="w-5 h-5 text-red-500" />
-            <span className="font-medium text-gray-900">Chặn ứng dụng</span>
+            {/* Sessions Slider */}
+            <div className="flex items-center gap-3">
+              <label className="text-xs uppercase text-gray-500 font-semibold w-24">
+                Số buổi
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="10"
+                value={sessions}
+                onChange={(e) => handleSessionsChange(Number(e.target.value))}
+                disabled={isPlaying}
+                className="flex-1 h-2 bg-gray-200 rounded-full cursor-pointer appearance-none disabled:opacity-50"
+                style={{
+                  background: `linear-gradient(to right, #f59e0b 0%, #f59e0b ${(sessions / 10) * 100}%, #e5e1db ${(sessions / 10) * 100}%, #e5e1db 100%)`,
+                }}
+              />
+              <div className="text-xs font-semibold text-gray-700 w-16 text-right">
+                {sessions} buổi
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button className="w-9 h-5 bg-purple-500 rounded-full relative transition-all">
-              <div className="absolute right-1 top-0.5 w-4 h-4 bg-white rounded-full"></div>
-            </button>
-            <span className="text-sm font-medium text-gray-600">8 apps</span>
-            <ChevronRight className="w-4 h-4 text-gray-400" />
+        )}
+
+        {/* Infinite Mode Message */}
+        {mode === "infinite" && (
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-3xl shadow-sm border border-purple-200 p-4 text-center">
+            <p className="text-sm font-semibold text-purple-700">
+              ∞ Chế độ Vô hạn - Không giới hạn thời gian
+            </p>
+            <p className="text-xs text-purple-600 mt-1">
+              Tập trung bao lâu cũng được, dừng lại khi bạn muốn
+            </p>
           </div>
-        </div>
+        )}
+
+        {/* Stats during session */}
+        {isPlaying && (
+          <div className="bg-gradient-to-r from-emerald-50 to-blue-50 rounded-3xl shadow-sm border border-emerald-200 p-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="text-center">
+                <p className="text-xs uppercase text-emerald-600 font-semibold">Thời gian tập trung</p>
+                <p className="text-2xl font-bold text-emerald-700 mt-1">{focusTime}m</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs uppercase text-blue-600 font-semibold">Chế độ</p>
+                <p className="text-2xl font-bold text-blue-700 mt-1 capitalize">{getModeLabel(mode)}</p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom Navigation */}

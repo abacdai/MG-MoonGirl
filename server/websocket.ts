@@ -104,8 +104,8 @@ export function setupWebSocket(httpServer: HTTPServer) {
         members: [
           {
             userId,
-            displayName: data.displayName || "Host",
-            avatar: data.avatar || "👤",
+            displayName: "Host",
+            avatar: "👤",
             isFocusing: false,
             micOn: true,
             socketId: socket.id,

@@ -1,5 +1,6 @@
 import { RequestHandler } from "express";
 
+
 interface BlockRule {
   id: string;
   userId: string;

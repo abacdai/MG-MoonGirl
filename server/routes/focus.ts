@@ -1,5 +1,6 @@
 import { RequestHandler } from "express";
 
+
 interface FocusSession {
   id: string;
   userId: string;
@@ -21,11 +22,11 @@ const COINS_PER_HOUR = 100;
 const MAX_CLOCK_SKEW_MS = 30000; // 30 seconds
 
 export const startSession: RequestHandler = (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
+  const token = req.headers.authorization?.replace("Bearer ", "") || "anonymous_user";
   const { mode, focusTime } = req.body;
 
-  if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (!mode || !focusTime) {
+    return res.status(400).json({ error: "Mode and focusTime are required" });
   }
 
   const sessionId = `session_${Date.now()}`;
@@ -53,11 +54,11 @@ export const startSession: RequestHandler = (req, res) => {
 };
 
 export const endSession: RequestHandler = (req, res) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
+  const token = req.headers.authorization?.replace("Bearer ", "") || "anonymous_user";
   const { sessionId, clientEndTimestamp, claimedDuration, clientHash } = req.body;
 
-  if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
   }
 
   const session = sessions.get(sessionId);
@@ -156,5 +157,53 @@ export const getStats: RequestHandler = (req, res) => {
     screenTimeHours: user.screenTimeHours,
     level: Math.floor((user.focusHours || 0) / 2),
     streak: userSessions.get(token)?.length || 0,
+  });
+};
+
+export const heartbeat: RequestHandler = (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "") || "anonymous_user";
+  const { sessionId, elapsedSeconds } = req.body;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  // Validate elapsed time doesn't exceed duration + 5 minute buffer
+  if (elapsedSeconds > (session.duration * 60) + 300) {
+    return res.status(400).json({
+      error: "Session time exceeded",
+    });
+  }
+
+  res.json({ success: true, serverTime: Date.now() });
+};
+
+export const penalty: RequestHandler = (req, res) => {
+  const token = req.headers.authorization?.replace("Bearer ", "") || "anonymous_user";
+  const { sessionId, reason } = req.body;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: "sessionId is required" });
+  }
+
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  // Mark session as invalid due to violation
+  const user = users.get(token) || {};
+  user.penaltyCount = (user.penaltyCount || 0) + 1;
+  users.set(token, user);
+
+  res.json({
+    success: true,
+    reason,
+    penaltyCount: user.penaltyCount,
   });
 };

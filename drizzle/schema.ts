@@ -46,7 +46,7 @@ export const userProfiles = pgTable(
     timezone: text("timezone").default("Asia/Ho_Chi_Minh"),
     streakCount: integer("streak_count").default(0),
     lastCheckin: timestamp("last_checkin"),
-    totalPoints: bigint("total_points").default(0n), // MoonCoins
+    totalPoints: bigint("total_points", { mode: "number" }).default(0), // MoonCoins
     level: integer("level").default(1),
   },
   (table) => ({
@@ -96,7 +96,7 @@ export const focusSessions = pgTable(
     brokenAt: timestamp("broken_at"),
     roomId: uuid("room_id"), // For co-study
     pointsEarned: integer("points_earned").default(0),
-    serverTick: bigint("server_tick"),
+    serverTick: bigint("server_tick", { mode: "number" }),
     clientHash: text("client_hash"),
   },
   (table) => ({
@@ -358,7 +358,7 @@ export const anticheatEvents = pgTable(
     eventType: text("event_type").notNull(), // 'clock_skew' | 'session_tamper' | 'rapid_point'
     clientTs: timestamp("client_ts"),
     serverTs: timestamp("server_ts").defaultNow(),
-    deltaMs: bigint("delta_ms"),
+    deltaMs: bigint("delta_ms", { mode: "number" }),
     sessionId: uuid("session_id"),
     metadata: jsonb("metadata"),
     severity: text("severity").default("warning"), // 'warning' | 'ban_trigger'
@@ -406,8 +406,8 @@ export const storeTransactions = pgTable(
       .notNull()
       .references(() => storeListings.id, { onDelete: "restrict" }),
     pointsSpent: integer("points_spent").notNull(),
-    balanceBefore: bigint("balance_before").notNull(),
-    balanceAfter: bigint("balance_after").notNull(),
+    balanceBefore: bigint("balance_before", { mode: "number" }).notNull(),
+    balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
     status: text("status").default("pending"), // 'pending' | 'fulfilled' | 'failed'
     idempotencyKey: text("idempotency_key").notNull().unique(),
     createdAt: timestamp("created_at").defaultNow(),

@@ -262,7 +262,7 @@ export default function Stats() {
         {/* Streaks & Achievements */}
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white bg-opacity-50 backdrop-blur-md rounded-2xl p-4 border border-white border-opacity-60 text-center">
-            <p className="text-3xl font-bold text-amber-600">{stats.sessions.length}</p>
+            <p className="text-3xl font-bold text-amber-600">{stats.streak}</p>
             <p className="text-xs text-gray-600 mt-2 font-medium">Phiên tập trung</p>
           </div>
           <div className="bg-white bg-opacity-50 backdrop-blur-md rounded-2xl p-4 border border-white border-opacity-60 text-center">

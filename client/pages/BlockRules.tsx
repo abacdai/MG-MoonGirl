@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Home, Clock, Users, LayoutGrid, ChevronLeft, Plus, Trash2, Toggle2 } from "lucide-react";
+import { Home, Clock, Users, LayoutGrid, ChevronLeft, Plus, Trash2 } from "lucide-react";
 import { useLanguage } from "@/hooks/useLanguage";
 
 interface BlockRule {

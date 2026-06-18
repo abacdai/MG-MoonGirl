@@ -1,5 +1,6 @@
 import { RequestHandler } from "express";
 
+
 // In-memory user store (temporary - will use database later)
 const users = new Map<string, any>();
 const sessions = new Map<string, string>();
